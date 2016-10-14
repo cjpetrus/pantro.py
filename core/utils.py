@@ -1,24 +1,17 @@
-#!/usr/bin/env python
-import os, errno
-import boto3
 import argparse
-from core import TerraformS3Lock
-from core import TerraformRun
-import argparse
-import boto3
-import contextlib
-import copy
-import getpass
-import io
-import json
+import errno
 import os
 import shutil
-import subprocess
-import sys
-import tempfile
-import threading
-import time
-import yaml
+import boto3
+import botocore
+from core import TerraformRun
+from core import TerraformS3Lock
+
+
+# def create_env(dirpath):
+#     env_path = tempfile.mkdtemp()
+#     #shutil.rmtree(dirpath)
+#     return env_path
 
 
 def remove_old_file(filepath):
@@ -27,6 +20,17 @@ def remove_old_file(filepath):
     except OSError as e:
         if e.errno != errno.ENOENT:
             raise
+
+
+def copy_directory(src, dest):
+    try:
+        shutil.copytree(src, dest)
+    # Directories are the same
+    except shutil.Error as e:
+        print('Directory not copied. Error: %s' % e)
+    # Any error saying that the directory doesn't exist
+    except OSError as e:
+        print('Directory not copied. Error: %s' % e)
 
 
 def remote_state_config(region, bucket, key, path):
@@ -57,6 +61,38 @@ def get_terraform_vars(region, bucket, prefix):
     client.download_file(bucket, prefix + "terraform.tfvars", 'terraform.tfvars')
 
 
+def get_account_id():
+    iam = boto3.client('iam')
+    users = iam.list_users()['Users']
+    roles = iam.list_roles()['Roles']
+
+    if users:
+        arn = users[0]['Arn']
+    else:
+        for role in roles:
+            try:
+                arn = iam.get_role(RoleName=role['RoleName'])['Role']['Arn']
+                break
+            except Exception as e:
+                pass
+
+
+def get_account_id():
+    iam = boto3.client('iam')
+    users = iam.list_users()['Users']
+    roles = iam.list_roles()['Roles']
+
+    if users:
+        arn = users[0]['Arn']
+    else:
+        for role in roles:
+            try:
+                arn = iam.get_role(RoleName=role['RoleName'])['Role']['Arn']
+                break
+            except Exception as e:
+                pass
+
+
 def run_terraform(args, tf_args):
     path = None
     if args.path:
@@ -83,7 +119,24 @@ def run_terraform(args, tf_args):
     tf.unlock()
 
 
-if __name__ == '__main__':
+def s3_file_exist(filename):
+    s3 = boto3.resource('s3')
+    exists = False
+
+    try:
+        s3.Object('my-bucket', filename).load()
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            exists = False
+        else:
+            raise e
+    else:
+        exists = True
+
+    print(exists)
+
+
+def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('-r',
                         '--region',
@@ -115,4 +168,5 @@ if __name__ == '__main__':
                         action='store_true')
     args, terraform = parser.parse_known_args()
 
-    run_terraform(args, terraform)
+    # run_terraform(args, terraform)
+    return (args, terraform)
